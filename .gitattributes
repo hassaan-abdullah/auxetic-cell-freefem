@@ -1,0 +1,9 @@
+* text = auto
+*.edp text
+*.py  text
+*.md  text
+*.json text
+*.mph binary
+*.png binary
+*.vtu binary
+*.msh text

@@ -1,0 +1,83 @@
+/*
+-------------------------------------------------------------------------------------
+---------------------- Verification of Periodic Homogenisation ----------------------
+-------------------------------------------------------------------------------------
+
+Displacement in the cell = macro strain * x + periodic fluctuation chi. For each 
+unit macro strain (eps_xx, eps_yy, gamma_xy) solve for chi, then 
+Q_ij = (1/|Y|) int_Y (eps0_i + eps(chi_i)) : C : (eps0_j + eps(chi_j)) dY,  |Y| = 1.
+For a homogeneous cell the right-hand side vanishes, chi = 0, and the result is exact
+on any mesh, so the check tests the bookkeeping and not the discretisation.
+*/
+
+int     n = 20; // elements per side
+
+// ---  Mesh and Finite Element Space ---
+mesh    Th = square(n, n, flags=1);
+fespace Uh(Th, [P2,P2], periodic=[[2,y],[4,y],[1,x],[3,x]]);
+
+// ---  Material Properties ---
+real    nu0 = 0.5, 
+        c11 = 1./(1.-nu0^2), 
+        c12 = nu0/(1.-nu0^2), 
+        c33 = 0.5/(1.+nu0);
+
+/* ---  Voigt Notation Macros ---
+ 
+eps: strain [e_xx, e_yy, gamma_xy] with engineering shear gamma = du1/dy + du2/dx
+Ceps: stress = C * strain
+T1..T3: total strain (unit macro strain + fluctuation) for the three load cases
+C(t): C applied to any Voigt vector t
+*/
+macro   eps(u1,u2)  [dx(u1), dy(u2), dy(u1)+dx(u2)] //
+macro   Ceps(u1,u2) [c11*dx(u1)+c12*dy(u2), c12*dx(u1)+c11*dy(u2), 
+        c33*(dy(u1)+dx(u2))] //
+macro   T1() [1.+dx(a1), dy(a2), dy(a1)+dx(a2)] //
+macro   T2() [dx(b1), 1.+dy(b2), dy(b1)+dx(b2)] //
+macro   T3() [dx(d1), dy(d2), 1.+dy(d1)+dx(d2)] //
+macro   C(t) [c11*t[0]+c12*t[1], c12*t[0]+c11*t[1], c33*t[2]] //
+
+real    e01, 
+        e02, 
+        e03; // macro strain of the current load case, read by vF at assembly
+
+Uh      [u1,u2], 
+        [v1,v2], 
+        [a1,a2], 
+        [b1,b2], 
+        [d1,d2];
+
+// ---  Variational Formulation for the Cell Problem ---
+// stiffness of fluctuation
+varf    vK([u1,u2],[v1,v2]) = int2d(Th)( Ceps(u1,u2)'*eps(v1,v2) ) 
+                            + int2d(Th)( 1e-9*(u1*v1+u2*v2) ); 
+// the load produced by the macro strain
+varf    vF([u1,u2],[v1,v2]) = int2d(Th)( -([c11*e01+c12*e02, 
+                              c12*e01+c11*e02, c33*e03]'*eps(v1,v2)) );
+
+matrix  K = vK(Uh,Uh, solver=sparsesolver);
+
+real[int] F(Uh.ndof);
+
+e01     = 1; 
+e02     = 0; 
+e03     = 0; 
+F       = vF(0,Uh); 
+a1[]    = K^-1*F; // unit eps_xx
+
+e01     = 0; 
+e02     = 1; 
+e03     = 0; 
+F       = vF(0,Uh); 
+b1[]    = K^-1*F; // unit eps_yy
+
+e01     = 0; 
+e02     = 0; 
+e03     = 1; 
+F       = vF(0,Uh); 
+d1[]    = K^-1*F; // unit gamma_xy
+
+// ---  Compute the Effective Stiffness Matrix ---
+cout << "Q11 = " << int2d(Th)(T1'*C(T1)) << "   (expected " << c11 << ")" << endl;
+cout << "Q12 = " << int2d(Th)(T1'*C(T2)) << "   (expected " << c12 << ")" << endl;
+cout << "Q33 = " << int2d(Th)(T3'*C(T3)) << "   (expected " << c33 << ")" << endl;
