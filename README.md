@@ -105,7 +105,7 @@ Optimises the periodic cell for the most negative effective Poisson's ratio at 4
 
 - `inv_homogenisation_rho.vtu`: the same density, for ParaView.
 
-The final line printed at the end reports the stiffness of the last analysis design, which is the eroded one when `-thrA 0.6` is used. The stiffness of the saved, printable cell comes from A-check.
+The final line printed at the end reports the stiffness of the last analysis design, which is the eroded one when `-thrA 0.6` is used. The stiffness of the printable cell comes from A-check.
 
 
 ## 4. Verification and Testing
@@ -164,6 +164,6 @@ The model leaves out several effects that a real printed component would show.
 
 Released under the MIT License (see `LICENSE`). If you use this code, please cite the repository:
 
-> Abdullah, S. H. (2026). *Auxetic Unit Cell: Inverse Homogenisation and Large-Strain Stability in FreeFEM* Software Repository, GitHub. See https://github.com/hassaan-abdullah/auxetic-cell-freefem
+> Abdullah, S. H. (2026). *Auxetic Unit Cell: Inverse Homogenisation and Large-Strain Stability in FreeFEM*. Software Repository, GitHub. See https://github.com/hassaan-abdullah/auxetic-cell-freefem
 
 Code development was assisted by an AI coding assistant. The problem formulation, the verification runs, and the interpretation of the results are the author's.

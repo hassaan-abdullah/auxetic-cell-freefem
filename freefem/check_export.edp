@@ -1,0 +1,199 @@
+/*
+-----------------------------------------------------------------------------------------------
+-------------------------- Black-and-White Check and Geometry Export --------------------------
+-----------------------------------------------------------------------------------------------
+
+The black-and-white cell is stair-stepped at the size of one element. If a hinge is only
+two or three elements thick, a different mesh cuts it differently and the mechanism
+changes. The difference between the two Poisson's ratios measures exactly that; below
+~5 % the coarse cell used in Stage B is the same mechanism as the fine one.
+
+Input Files (from running inverse_homogenisation_SIMP.edp):
+- cell.msh 
+- rho_P1.txt            
+
+Expected Output Files:
+- cell_bw.msh    black-and-white cell on the nbw grid (input of B1 and B2)
+- nuH_bw.txt     its small-strain Poisson's ratio (reference value for B1)
+- solid_k.txt    closed outlines enclosing material (counter-clockwise)
+- hole_k.txt     closed outlines of holes in material (clockwise)   
+- cell_3x3.vtu   the density tiled 3 x 3, for ParaView and the summary figure
+*/
+
+load "iovtk" // savevtk
+load "isoline" // contour extraction
+
+// ---  Command-line Parameters ---
+/* getReal / getInt look for a key (e.g. "-nbw") in the command line (ARGV) and return 
+** the following word as a number, or the default. Every parameter of B1 can therefore be 
+** changed without editing this file. The defaults are the verified settings. */
+func real getReal(string key, real def) 
+{
+    for (int i = 0; i < ARGV.n - 1; i++) 
+        if (ARGV[i] == key) 
+            return atof(ARGV[i+1]);
+    return def;
+}
+
+func int getInt(string key, int def) 
+{
+    for (int i = 0; i < ARGV.n - 1; i++) 
+        if (ARGV[i] == key) 
+            return atoi(ARGV[i+1]);
+    return def;
+}
+
+// ---  Read the Optimesed Cell and its Density Field ---
+/* Rh must be the same space as in inverse_homogenisation_SIMP.edp (P1, periodic, same mesh), 
+** otherwise the array would be read into the wrong nodes. Reading expects the array length 
+** first (as written). */
+mesh Th = readmesh("./results/cell.msh");
+fespace Rh(Th, P1, periodic=[[2,y],[4,y],[1,x],[3,x]]);
+
+Rh rho; 
+{ 
+  ifstream fi("./results/rho_P1.txt"); 
+  fi >> rho[]; 
+}
+
+// ---  Check the Homogenised Stiffness of the Black-and-White Cell ---
+int nbw   = getInt("-nbw", 40); /* resolution of the Stage B cell; 40 keeps the 6 x 4 block of B2
+                                ** at ~33 000 triangles (the full-resolution cell would be ~6x larger) */
+
+cout << "PARAMS nbw " << nbw << endl;
+real  nu0 = 0.5, 
+      c11 = 1./(1.-nu0^2), 
+      c12 = nu0/(1.-nu0^2), 
+      c33 = 0.5/(1.+nu0);
+
+macro eps(u1,u2)  [dx(u1), dy(u2), dy(u1)+dx(u2)] // 
+macro Ceps(u1,u2) [c11*dx(u1)+c12*dy(u2), c12*dx(u1)+c11*dy(u2), c33*(dy(u1)+dx(u2))] //
+macro T1() [1.+dx(a1), dy(a2), dy(a1)+dx(a2)] //
+macro T2() [dx(b1), 1.+dy(b2), dy(b1)+dx(b2)] //
+macro C(t) [c11*t[0]+c12*t[1], c12*t[0]+c11*t[1], c33*t[2]] //
+
+real  e01, 
+      e02, 
+      e03, 
+      nuFull    = 0., 
+      nuBW      = 0., 
+      areaFull  = 0.;
+
+for (int pass = 0; pass < 2; pass++) 
+{
+  mesh Ts;
+
+  if (pass == 0) 
+    Ts = trunc(Th, rho > 0.5, label=5); // pass 0, optimisation resolution
+  else 
+  {
+    mesh Tc   = square(nbw, nbw, flags=1); // pass 1: fresh symmetric nbw grid
+
+    fespace Rc(Tc, P1);
+
+    Rc rhoc   = rho(x, y); // interpolate the density onto it
+    Ts        = trunc(Tc, rhoc > 0.5, label=5);
+    
+    savemesh(Ts, "./results/cell_bw.msh"); // the cell used in Stage B
+  }
+
+  fespace Vh(Ts, [P2,P2], periodic=[[2,y],[4,y],[1,x],[3,x]]);
+
+  Vh  [u1,u2], 
+      [v1,v2], 
+      [a1,a2], 
+      [b1,b2];
+
+  varf vK([u1,u2],[v1,v2])  = int2d(Ts)( Ceps(u1,u2)'*eps(v1,v2) ) 
+                            + int2d(Ts)( 1e-9*(u1*v1+u2*v2) );
+
+  varf vF([u1,u2],[v1,v2])  = int2d(Ts)( -([c11*e01+c12*e02, c12*e01+c11*e02, c33*e03]'*eps(v1,v2)) );
+
+  matrix K = vK(Vh,Vh, solver=sparsesolver);
+
+  real[int] F(Vh.ndof);
+
+  e01       = 1; 
+  e02       = 0; 
+  e03       = 0; 
+  F         = vF(0,Vh); 
+  a1[]      = K^-1*F;
+
+  e01       = 0; 
+  e02       = 1; 
+  e03       = 0; 
+  F         = vF(0,Vh); 
+  b1[]      = K^-1*F;
+
+  real  Q11 = int2d(Ts)( T1'*C(T1) ), 
+        Q22 = int2d(Ts)( T2'*C(T2) ), 
+        Q12 = int2d(Ts)( T1'*C(T2) );
+
+  cout << (pass == 0 ? "BLACK-AND-WHITE CELL (full resolution) " : "BLACK-AND-WHITE CELL (re-sampled, nbw) ")
+       << " solid " << Ts.measure << "  Q11 " << Q11 << "  Q22 " << Q22 << "  Q12 " << Q12
+       << "  nu_yx " << Q12/Q11 << endl;
+
+  // if Q11 ~ 0, then the load path ran through grey material that thresholding removed
+  if (Q11 < 1e-6) 
+    cout << "WARNING: Q11 ~ 0 -> the cell has fallen apart at the threshold (grey hinges)." << endl;
+  
+  if (pass == 0) 
+  { 
+    nuFull = Q12/Q11; 
+    areaFull = Ts.measure; 
+  } 
+  else 
+    nuBW = Q12/Q11;
+}
+
+{ 
+  ofstream fn("./results/nuH_bw.txt"); 
+  fn << nuBW << endl; 
+} // B1's first load step must reproduce this
+
+cout << "re-sampling changed nu by " << 100.*abs(nuBW-nuFull)/abs(nuFull) << " %" << endl;
+
+// ---  Contour Export ---
+/* isoline(..., close=1) returns closed polylines around the region rho > 0.5: curves that hit
+** the cell boundary are closed by running along it. be[2c], be[2c+1] are the first and
+** (one past the) last point of curve c in xy. The signed area (shoelace formula) separates
+** counter-clockwise outlines of material (A > 0) from clockwise holes inside material (A < 0):
+** a CAD model is built from the solids minus the holes. */
+real  [int,int] xy(3,1); 
+      int[int]  be(1);
+
+int nc = isoline(Th, rho, xy, close=1, iso=0.5, beginend=be, smoothing=0.005);
+
+int ns = 0, 
+    nh = 0;
+
+for (int c = 0; c < nc; c++) 
+{
+  int i0 = be[2*c], 
+      i1 = be[2*c+1]-1;
+  real A = 0.;
+
+  for (int k = i0; k < i1; k++) 
+    A += 0.5*(xy(0,k)*xy(1,k+1) - xy(0,k+1)*xy(1,k));
+    
+  string fname = (A > 0) ? "solid_" + ns++ + ".txt" : "hole_" + nh++ + ".txt";
+  
+  ofstream fc(fname);
+
+  for (int k = i0; k <= i1; k++) 
+    fc << xy(0,k) << " " << xy(1,k) << endl;
+
+  cout << "  " << fname << "  (" << (i1-i0+1) << " points, signed area " << A << ")" << endl;
+}
+
+cout << ns << " solid outline(s), " << nh << " hole(s) written" << endl;
+
+// ---  3x3 Density Export for ParaView ---
+/* A mesh over [0,3]^2 at three times the cell resolution; rho(x - floor(x), y - floor(y))
+** evaluates the periodic density at the point folded back into the unit cell. */
+mesh T9       = square(3*Th.nv^0.5, 3*Th.nv^0.5, [3*x, 3*y]);
+fespace R9(T9, P1);
+R9 r9         = rho(x - floor(x), y - floor(y));
+int[int] ord  = [1];
+
+savevtk("cell_3x3.vtu", T9, r9, dataname="rho", order=ord);

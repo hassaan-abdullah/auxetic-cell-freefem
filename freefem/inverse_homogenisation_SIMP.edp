@@ -40,29 +40,29 @@ func int getInt(string key, int def)
 }
 
 // ---  Parameters of the Optimisation Problem ---
-int     n       = getInt ("-n", 100); // elements per side of the cell (50 = quick test)
-real    volfrac = getReal("-volfrac", 0.40); // target solid fraction (upper bound)
-real    penal   = getReal("-penal", 3.0); // SIMP penalty power p
-real    rmin    = getReal("-rmin", 0.06); // filter radius in cell units ~ minimum feature / cell size
-real    move    = getReal("-move", 0.05); // OC move limit: max change of a design variable per iteration
-real    eta     = getReal("-eta", 0.3); /* OC damping exponent (0.5 is usual for compliance; this
-                                        objective changes sign across the cell and needs more damping)*/
-real    beta    = getReal("-beta", 0.8); /* stiffness reward in f decays as beta^iter (~10 % at it 10,
+int n           = getInt ("-n", 100); // elements per side of the cell (50 = quick test)
+real volfrac    = getReal("-volfrac", 0.40); // target solid fraction (upper bound)
+real penal      = getReal("-penal", 3.0); // SIMP penalty power p
+real rmin       = getReal("-rmin", 0.06); // filter radius in cell units ~ minimum feature / cell size
+real move       = getReal("-move", 0.05); // OC move limit: max change of a design variable per iteration
+real eta        = getReal("-eta", 0.3); /* OC damping exponent (0.5 is usual for compliance; this
+                                        ** objective changes sign across the cell and needs more damping)*/
+real beta       = getReal("-beta", 0.8); /* stiffness reward in f decays as beta^iter (~10 % at it 10,
                                          ~1 % at it 20): a load path forms first, then only Q12 counts */
-real    bH      = getReal("-bH0", 1.); // projection sharpness at the start ...
-real    bHmax   = getReal("-bHmax", 8.); // ... doubled every nstep iterations up to bHmax
-int     nstep   = getInt ("-nstep", 40); // iterations per sharpness level
-int     nfinal  = getInt ("-nfinal", 60); // extra iterations once bH = bHmax (total 3*40+60 = 180)
-real    thrA    = getReal("-thrA", 0.5); /* projection threshold used in the analysis:
-                                         0.5 = nominal design; 0.6 = eroded (thinner) design, so the
-                                         printed (nominal) cell has thicker hinges than the analysed one */
+real bH         = getReal("-bH0", 1.); // projection sharpness at the start ...
+real bHmax      = getReal("-bHmax", 8.); // ... doubled every nstep iterations up to bHmax
+int nstep       = getInt ("-nstep", 40); // iterations per sharpness level
+int nfinal      = getInt ("-nfinal", 60); // extra iterations once bH = bHmax (total 3*40+60 = 180)
+real thrA       = getReal("-thrA", 0.5); /* projection threshold used in the analysis:
+                                         ** 0.5 = nominal design; 0.6 = eroded (thinner) design, so the
+                                         ** printed (nominal) cell has thicker hinges than the analysed one */
 
 cout << "PARAMS n " << n << " volfrac " << volfrac << " penal " << penal << " rmin " << rmin
      << " move " << move << " eta " << eta << " beta " << beta << " bH0 " << bH << " bHmax " << bHmax
      << " nstep " << nstep << " nfinal " << nfinal << " thrA " << thrA << endl;
 
 /* Emin > 0 keeps the stiffness matrix non-singular in void regions; it must be tiny so that
-the void carries no load the printed part would not have. */
+** the void carries no load the printed part would not have. */
 real    E0 = 1., 
         Emin = 1e-9, 
         nu0 = 0.5;
@@ -76,7 +76,7 @@ mesh    Th = square(n, n, flags=1);
 // Displacement fluctuation: periodic P2 (quadratic, so thin hinges can bend accurately).
 fespace Uh(Th, [P2,P2], periodic=[[2,y],[4,y],[1,x],[3,x]]);
 /* Design, filtered, and projected densities: periodic P1 (nodal values). The Helmholtz filter
-needs a continuous field. */
+** needs a continuous field. */
 fespace Rh(Th, P1, periodic=[[2,y],[4,y],[1,x],[3,x]]);
 
 // ---  Helmholtz Density Filter ---
