@@ -75,14 +75,15 @@ Auxetic cells deform by rotating about thin hinges, and an optimiser readily bui
 
 ### 3.1 `freefem/check_solid.edp` 
 
-**Purpose:** verify the periodic homogenisation on a problem with a known answer. A completely solid cell is just the base material, so its homogenised plane-stress (or effective) stiffness must be 
+#### 3.1.1 Purpose
+Verify the periodic homogenisation on a problem with a known answer. A completely solid cell is just the base material, so its homogenised plane-stress (or effective) stiffness must be 
 - $Q_{11} = 4/3$, 
 - $Q_{12} = 2/3$, and 
 - $Q_{33} = 1/3$. 
 
 For a homogeneous cell the load term vanishes and the fluctuation is zero, so the answer is exact on any mesh. The check therefore tests the bookkeeping, i.e. the sign of the load term, engineering versus tensor shear, the periodic pairing, the energy formula, rather than the discretisation.
 
-**Output:**
+#### 3.1.2 Output
 ```
 Q11 = 1.33333   (expected 1.33333)
 Q12 = 0.666667   (expected 0.666667)
@@ -91,15 +92,20 @@ Q33 = 0.333333   (expected 0.333333)
 
 ### 3.2 `inverse_homogenisation_SIMP.edp`
 
-**Purpose.** Optimises the periodic cell for the most negative effective Poisson's ratio at 40 % solid, by the method described under *Physics and methods*. The analysis can use the nominal or the eroded design (`-thrA`), but the design that is **saved** is always the nominal one (threshold 0.5).
+#### 3.2.1 Purpose
+Optimises the periodic cell for the most negative effective Poisson's ratio at 40 % solid, by the topology optimisation method described under section 2.2. The analysis can use the nominal or the eroded design (`-thrA`), but the design that is **saved** is always the nominal one (threshold 0.5).
 
-**Outputs.**
+#### 3.2.2 Outputs
 
-stageA_history.txt: one line per iteration with the columns iter f Q11 Q22 Q12 Q33 nu_yx bH.
-cell.msh: the optimisation mesh.
-rho_P1.txt: the nominal density at every node.
-stageA_rho.vtu: the same density, for ParaView.
-The FINAL line printed at the end reports the stiffness of the last analysis design, which is the eroded one when -thrA 0.6 is used. The stiffness of the saved, printable cell comes from A-check.
+- `inv_homogenisation_history.txt`: one line per iteration with the columns `iter f Q11 Q22 Q12 Q33 nu_yx bH`.
+
+- `cell.msh`: the optimisation mesh.
+
+- `rho_P1`.txt: the nominal density at every node.
+
+- `inv_homogenisation_rho.vtu`: the same density, for ParaView.
+
+The final line printed at the end reports the stiffness of the last analysis design, which is the eroded one when `-thrA 0.6` is used. The stiffness of the saved, printable cell comes from A-check.
 
 
 ## 4. Verification and Testing
@@ -120,28 +126,44 @@ The model leaves out several effects that a real printed component would show.
 - **A local optimum:** the optimised cell is one local optimum of a non-convex problem, not a global one [15].
 
 ## 6. References
-1. Hecht F. 2012 New development in FreeFem++. *J. Numer. Math.* **20**, 251–265. (doi:10.1515/jnum-2012-0013)
-2. Lakes R. 1987 Foam structures with a negative Poisson's ratio. *Science* **235**, 1038–1040. (doi:10.1126/science.235.4792.1038)
-3. Evans KE, Nkansah MA, Hutchinson IJ, Rogers SC. 1991 Molecular network design. *Nature* **353**, 124. (doi:10.1038/353124a0)
-4. Bertoldi K, Vitelli V, Christensen J, van Hecke M. 2017 Flexible mechanical metamaterials. *Nat. Rev. Mater.* **2**, 17066. (doi:10.1038/natrevmats.2017.66)
-5. Sigmund O. 1994 Materials with prescribed constitutive parameters: an inverse homogenization problem. *Int. J. Solids Struct.* **31**, 2313–2329. (doi:10.1016/0020-7683(94)90154-6)
-6. Xia L, Breitkopf P. 2015 Design of materials using topology optimization and energy-based homogenization approach in Matlab. *Struct. Multidiscip. Optim.* **52**, 1229–1241. (doi:10.1007/s00158-015-1294-0)
-7. Bensoussan A, Lions J-L, Papanicolaou G. 1978 *Asymptotic analysis for periodic structures*. Amsterdam, The Netherlands: North-Holland.
-8. Clausen A, Wang F, Jensen JS, Sigmund O, Lewis JA. 2015 Topology optimized architectures with programmable Poisson's ratio over large deformations. *Adv. Mater.* **27**, 5523–5527. (doi:10.1002/adma.201502485)
-9. Bertoldi K, Reis PM, Willshaw S, Mullin T. 2010 Negative Poisson's ratio behavior induced by an elastic instability. *Adv. Mater.* **22**, 361–366. (doi:10.1002/adma.200901956)
-10. Andreassen E, Andreasen CS. 2014 How to determine composite material properties using numerical homogenization. *Comput. Mater. Sci.* **83**, 488–495. (doi:10.1016/j.commatsci.2013.09.006)
-11. Hill R. 1963 Elastic properties of reinforced solids: some theoretical principles. *J. Mech. Phys. Solids* **11**, 357–372. (doi:10.1016/0022-5096(63)90036-X)
-12. Bendsøe MP. 1989 Optimal shape design as a material distribution problem. *Struct. Optim.* **1**, 193–202. (doi:10.1007/BF01650949)
-13. Bendsøe MP, Sigmund O. 2003 *Topology optimization: theory, methods and applications*, 2nd edn. Berlin, Germany: Springer. (doi:10.1007/978-3-662-05086-6)
-14. Lazarov BS, Sigmund O. 2011 Filters in topology optimization based on Helmholtz-type differential equations. *Int. J. Numer. Methods Eng.* **86**, 765–781. (doi:10.1002/nme.3072)
-15. Sigmund O, Petersson J. 1998 Numerical instabilities in topology optimization: a survey on procedures dealing with checkerboards, mesh-dependencies and local minima. *Struct. Optim.* **16**, 68–75. (doi:10.1007/BF01214002)
-16. Wang F, Lazarov BS, Sigmund O. 2011 On projection methods, convergence and robust formulations in topology optimization. *Struct. Multidiscip. Optim.* **43**, 767–784. (doi:10.1007/s00158-010-0602-y)
-17. Andreassen E, Clausen A, Schevenels M, Lazarov BS, Sigmund O. 2011 Efficient topology optimization in MATLAB using 88 lines of code. *Struct. Multidiscip. Optim.* **43**, 1–16. (doi:10.1007/s00158-010-0594-7)
+1. Hecht F. 2012 New development in FreeFem++. *J. Numer. Math.* **20**, 251–265. [(doi:10.1515/jnum-2012-0013)](https://www.degruyterbrill.com/document/doi/10.1515/jnum-2012-0013/html?)
+
+2. Lakes R. 1987 Foam structures with a negative Poisson's ratio. *Science* **235**, 1038–1040. [(doi:10.1126/science.235.4792.1038)](https://www.science.org/doi/10.1126/science.235.4792.1038)
+
+3. Evans KE, Nkansah MA, Hutchinson IJ, Rogers SC. 1991 Molecular network design. *Nature* **353**, 124. [(doi:10.1038/353124a0)](https://www.nature.com/articles/353124a0)
+
+4. Bertoldi K, Vitelli V, Christensen J, van Hecke M. 2017 Flexible mechanical metamaterials. *Nat. Rev. Mater.* **2**, 17066. [(doi:10.1038/natrevmats.2017.66)](https://www.nature.com/articles/natrevmats201766)
+
+5. Sigmund O. 1994 Materials with prescribed constitutive parameters: an inverse homogenization problem. *Int. J. Solids Struct.* **31**, 2313–2329. [(doi:10.1016/0020-7683(94)90154-6)](https://www.sciencedirect.com/science/article/pii/0020768394901546)
+
+6. Xia L, Breitkopf P. 2015 Design of materials using topology optimization and energy-based homogenization approach in Matlab. *Struct. Multidiscip. Optim.* **52**, 1229–1241. [(doi:10.1007/s00158-015-1294-0)](https://dl.acm.org/doi/10.1007/s00158-015-1294-0)
+
+7. Bensoussan A, Lions J-L, Papanicolaou G. 1978 *Asymptotic analysis for periodic structures*. Amsterdam, The Netherlands: North-Holland. [ISBN: 978-0444851727](https://api.pageplace.de/preview/DT0400.9780080875262_A23529285/preview-9780080875262_A23529285.pdf)
+
+8. Clausen A, Wang F, Jensen JS, Sigmund O, Lewis JA. 2015 Topology optimized architectures with programmable Poisson's ratio over large deformations. *Adv. Mater.* **27**, 5523–5527. [(doi:10.1002/adma.201502485)](https://advanced.onlinelibrary.wiley.com/doi/abs/10.1002/adma.201502485)
+
+9. Bertoldi K, Reis PM, Willshaw S, Mullin T. 2010 Negative Poisson's ratio behavior induced by an elastic instability. *Adv. Mater.* **22**, 361–366. [(doi:10.1002/adma.200901956)](https://advanced.onlinelibrary.wiley.com/doi/abs/10.1002/adma.200901956)
+
+10. Andreassen E, Andreasen CS. 2014 How to determine composite material properties using numerical homogenization. *Comput. Mater. Sci.* **83**, 488–495. [(doi:10.1016/j.commatsci.2013.09.006)](https://www.sciencedirect.com/science/article/abs/pii/S0927025613005302)
+
+11. Hill R. 1963 Elastic properties of reinforced solids: some theoretical principles. *J. Mech. Phys. Solids* **11**, 357–372. [(doi:10.1016/0022-5096(63)90036-X)](https://www.sciencedirect.com/science/article/abs/pii/002250966390036X)
+
+12. Bendsøe MP. 1989 Optimal shape design as a material distribution problem. *Struct. Optim.* **1**, 193–202. [(doi:10.1007/BF01650949)](https://link.springer.com/article/10.1007/BF01650949)
+
+13. Bendsøe MP, Sigmund O. 2003 *Topology optimization: theory, methods and applications*, 2nd edn. Berlin, Germany: Springer. [(doi:10.1007/978-3-662-05086-6)] (https://link.springer.com/book/10.1007/978-3-662-05086-6)
+
+14. Lazarov BS, Sigmund O. 2011 Filters in topology optimization based on Helmholtz-type differential equations. *Int. J. Numer. Methods Eng.* **86**, 765–781. [(doi:10.1002/nme.3072)](https://onlinelibrary.wiley.com/doi/10.1002/nme.3072)
+
+15. Sigmund O, Petersson J. 1998 Numerical instabilities in topology optimization: a survey on procedures dealing with checkerboards, mesh-dependencies and local minima. *Struct. Optim.* **16**, 68–75. [(doi:10.1007/BF01214002)](https://link.springer.com/article/10.1007/BF01214002)
+
+16. Wang F, Lazarov BS, Sigmund O. 2011 On projection methods, convergence and robust formulations in topology optimization. *Struct. Multidiscip. Optim.* **43**, 767–784. [(doi:10.1007/s00158-010-0602-y)](https://link.springer.com/article/10.1007/s00158-010-0602-y)
+
+17. Andreassen E, Clausen A, Schevenels M, Lazarov BS, Sigmund O. 2011 Efficient topology optimization in MATLAB using 88 lines of code. *Struct. Multidiscip. Optim.* **43**, 1–16. [(doi:10.1007/s00158-010-0594-7)](https://dl.acm.org/doi/abs/10.1007/s00158-010-0594-7)
 
 ## 7. License, citation and acknowledgement
 
 Released under the MIT License (see `LICENSE`). If you use this code, please cite the repository:
 
-> Abdullah, S. H. (2026). *Auxetic Unit Cell: Inverse Homogenisation and Large-Strain Stability in FreeFEM* [Computer software]. GitHub.
+> Abdullah, S. H. (2026). *Auxetic Unit Cell: Inverse Homogenisation and Large-Strain Stability in FreeFEM* Software Repository, GitHub. See https://github.com/hassaan-abdullah/auxetic-cell-freefem
 
 Code development was assisted by an AI coding assistant. The problem formulation, the verification runs, and the interpretation of the results are the author's.
