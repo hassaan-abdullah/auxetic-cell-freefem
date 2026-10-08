@@ -1,0 +1,308 @@
+/*
+----------------------------------------------------------------------------------------------
+-------------------------- Topology Optimisation of an Auxetic Cell --------------------------
+----------------------------------------------------------------------------------------------
+
+Inverse homogenisation with SIMP: find the distribution of material in a square, periodic 
+unit cell whose EFFECTIVE Poisson's ratio is as negative as possible, at a fixed solid 
+fraction. 2D, plane stress, small strain.
+
+E0 = 1, nu0 = 0.5; the small-strain limit of an incompressible rubber in plane stress, 
+i.e. the same material as the large-strain stages B1 and B2 (neo-Hookean, mu = 1/3).
+
+Expected output files:
+- inv_homogenisation_history.txt  (one line per iteration: iter f Q11 Q22 Q12 Q33 nu_yx bH)
+- cell.msh  (the optimisation mesh)
+- rho_P1.txt (the nominal density (threshold 0.5) at every node)
+- inv_homogenisation_rho.vtu (the same, for ParaView)
+*/
+
+load "iovtk" // plugin for savevtk (ParaView output)
+
+// ---  Command-line Parameters ---
+/* getReal / getInt look for a key (e.g. "-thrA") in the command line (ARGV) and return
+** the following word as a number, or the default. Every parameter of A1 can therefore be
+** changed without editing this file. The defaults are the verified settings. */
+func real getReal(string key, real def) 
+{
+    for (int i = 0; i < ARGV.n - 1; i++) 
+        if (ARGV[i] == key) 
+            return atof(ARGV[i+1]);
+    return def;
+}
+
+func int getInt(string key, int def) 
+{
+    for (int i = 0; i < ARGV.n - 1; i++) 
+        if (ARGV[i] == key) 
+            return atoi(ARGV[i+1]);
+    return def;
+}
+
+// ---  Parameters of the Optimisation Problem ---
+int     n       = getInt ("-n", 100); // elements per side of the cell (50 = quick test)
+real    volfrac = getReal("-volfrac", 0.40); // target solid fraction (upper bound)
+real    penal   = getReal("-penal", 3.0); // SIMP penalty power p
+real    rmin    = getReal("-rmin", 0.06); // filter radius in cell units ~ minimum feature / cell size
+real    move    = getReal("-move", 0.05); // OC move limit: max change of a design variable per iteration
+real    eta     = getReal("-eta", 0.3); /* OC damping exponent (0.5 is usual for compliance; this
+                                        objective changes sign across the cell and needs more damping)*/
+real    beta    = getReal("-beta", 0.8); /* stiffness reward in f decays as beta^iter (~10 % at it 10,
+                                         ~1 % at it 20): a load path forms first, then only Q12 counts */
+real    bH      = getReal("-bH0", 1.); // projection sharpness at the start ...
+real    bHmax   = getReal("-bHmax", 8.); // ... doubled every nstep iterations up to bHmax
+int     nstep   = getInt ("-nstep", 40); // iterations per sharpness level
+int     nfinal  = getInt ("-nfinal", 60); // extra iterations once bH = bHmax (total 3*40+60 = 180)
+real    thrA    = getReal("-thrA", 0.5); /* projection threshold used in the analysis:
+                                         0.5 = nominal design; 0.6 = eroded (thinner) design, so the
+                                         printed (nominal) cell has thicker hinges than the analysed one */
+
+cout << "PARAMS n " << n << " volfrac " << volfrac << " penal " << penal << " rmin " << rmin
+     << " move " << move << " eta " << eta << " beta " << beta << " bH0 " << bH << " bHmax " << bHmax
+     << " nstep " << nstep << " nfinal " << nfinal << " thrA " << thrA << endl;
+
+/* Emin > 0 keeps the stiffness matrix non-singular in void regions; it must be tiny so that
+the void carries no load the printed part would not have. */
+real    E0 = 1., 
+        Emin = 1e-9, 
+        nu0 = 0.5;
+                
+real    c11 = 1./(1.-nu0^2), 
+        c12 = nu0/(1.-nu0^2), 
+        c33 = 0.5/(1.+nu0);  // plane stress, per unit E
+
+// ---  Mesh and Finite Element Spaces ---
+mesh    Th = square(n, n, flags=1);
+// Displacement fluctuation: periodic P2 (quadratic, so thin hinges can bend accurately).
+fespace Uh(Th, [P2,P2], periodic=[[2,y],[4,y],[1,x],[3,x]]);
+/* Design, filtered, and projected densities: periodic P1 (nodal values). The Helmholtz filter
+needs a continuous field. */
+fespace Rh(Th, P1, periodic=[[2,y],[4,y],[1,x],[3,x]]);
+
+// ---  Helmholtz Density Filter ---
+/* Filtered density rt solves  -rh^2 Laplace(rt) + rt = x  (periodic), i.e.  Af rt = M x.
+** It spreads material over a length ~ rh, so nothing thinner than ~rmin can be drawn: no
+** checkerboards, mesh-independent results. rh = rmin/(2 sqrt 3) gives roughly the smoothing of
+** the classical "hat" filter of radius rmin (Lazarov & Sigmund 2011).
+** Taking w = 1 in the weak form shows int rt = int x: the filter conserves volume. */
+real rh         = rmin/(2.*sqrt(3.));
+
+varf vAf(r,w)   = int2d(Th)( rh^2*(dx(r)*dx(w)+dy(r)*dy(w)) + r*w );
+varf vM (r,w)   = int2d(Th)( r*w );
+varf vOne(r,w)  = int2d(Th)( w );
+
+matrix Af       = vAf(Rh,Rh, solver=sparsesolver); // constant: assembled and factorised once
+matrix Mm       = vM(Rh,Rh);
+
+real[int] dv    = vOne(0,Rh); // int phi_k: area weight of node k = d(volume)/d(x_k)
+
+// ---  Field Variables ---
+/* Start design: uniform volfrac, with a disc of half density in the centre. A uniform cell
+** gives every node the same sensitivity; the disc breaks the uniformity while keeping the
+** full symmetry of the square. */
+Rh  xd      = (sqrt((x-0.5)^2+(y-0.5)^2) < 0.25) ? volfrac/2. : volfrac;  // design variables
+
+Rh  rt, 
+    rho, 
+    drho, 
+    tmp, 
+    g, 
+    gs, 
+    xn, 
+    xold, 
+    dfF, 
+    dvF;
+
+dvF[]       = dv; // the area weights as a field, for use in the OC expression
+real thr    = thrA; // projection threshold currently in use (A11 resets it to 0.5)
+
+/* physical(): design -> filtered -> projected density, and the projection derivative.
+** Projection (Wang, Lazarov, & Sigmund 2011): a smoothed step at rt = thr that maps 0 -> 0 and
+** 1 -> 1 exactly; nearly linear for bH = 1, a steep S-curve for bH = 8. Assignment to a P1
+** function interpolates at the nodes, so rho_k depends only on rt_k and drho is a nodal factor. */
+func int physical() 
+{
+    tmp[]       = Mm*xd[];  
+    rt[]        = Af^-1*tmp[];
+    real den    = tanh(bH*thr) + tanh(bH*(1.-thr));
+    rho         = (tanh(bH*thr) + tanh(bH*(rt-thr)))/den;
+    drho        = bH*(1.-tanh(bH*(rt-thr))^2)/den;
+    return 0;
+}
+
+/* symm(v): replace each nodal value by the average of its images under the symmetries of the
+** square. Applied to the sensitivity (not the design): a symmetric start plus a symmetric
+** update keeps the design symmetric, which guarantees Q11 = Q22 and makes the cell edges
+** mirror planes.
+** The argument is passed by reference (&), so the caller's array is modified. */
+func int symm(real[int] &v) 
+{
+    g[] = v;
+    gs  = ( g(x,y) + g(1.-x,y) + g(x,1.-y) + g(1.-x,1.-y)
+        + g(y,x) + g(1.-y,x) + g(y,1.-x) + g(1.-y,1.-x) )/8.;
+    v   = gs[];
+    return 0;
+}
+
+// ---  The Three Cell Problems ---
+/* Displacement in the cell = macro strain * x + periodic fluctuation chi. For each
+** SIMP: E(rho) = Emin + rho^p (E0 - Emin). The max(rho,0) guard matters: a P1 Helmholtz
+** filter can undershoot slightly below zero near sharp edges, and a negative rho raised to a
+** power would give negative stiffness.*/
+macro Er()  (Emin + max(rho,0.)^penal*(E0-Emin)) //            SIMP stiffness
+macro dEr() (penal*max(rho,0.)^(penal-1.)*(E0-Emin)) //        its derivative dE/drho
+macro eps(u1,u2)  [dx(u1), dy(u2), dy(u1)+dx(u2)] //           Voigt strain, engineering shear
+macro Ceps(u1,u2) [c11*dx(u1)+c12*dy(u2), c12*dx(u1)+c11*dy(u2), c33*(dy(u1)+dx(u2))] //
+macro T1() [1.+dx(a1), dy(a2), dy(a1)+dx(a2)] //               total strain, unit eps_xx
+macro T2() [dx(b1), 1.+dy(b2), dy(b1)+dx(b2)] //               total strain, unit eps_yy
+macro T3() [dx(d1), dy(d2), 1.+dy(d1)+dx(d2)] //               total strain, unit gamma_xy
+macro C(t) [c11*t[0]+c12*t[1], c12*t[0]+c11*t[1], c33*t[2]] //
+
+real    e01, 
+        e02, 
+        e03; // macro strain of the current load case (read by vF)
+
+Uh      [u1,u2], 
+        [v1,v2], 
+        [a1,a2], 
+        [b1,b2], 
+        [d1,d2];
+
+// stiffness of fluctuation
+varf    vK([u1,u2],[v1,v2]) = int2d(Th)( Er*(Ceps(u1,u2)'*eps(v1,v2)) )
+                            + int2d(Th)( 1e-9*(u1*v1+u2*v2) );   // tiny term: removes rigid translation
+// the load produced by the macro strain
+varf    vF([u1,u2],[v1,v2]) = int2d(Th)( -Er*([c11*e01+c12*e02, c12*e01+c11*e02, c33*e03]'*eps(v1,v2)) );
+
+// ---  Inverse Homogenisation Loop ---
+int     iter        = 0, 
+        lastbump    = 0;         // lastbump: iteration of the last sharpening of bH
+
+real    Q11, 
+        Q22, 
+        Q12, 
+        Q33, 
+        f, 
+        change;
+
+ofstream hist("inv_homogenisation_history.txt");
+
+hist << "# iter  f  Q11  Q22  Q12  Q33  nu_yx  bH" << endl;
+
+while (true) 
+{
+    iter++;
+    physical();
+
+    /* Solve the three cell problems: one matrix, factorised once, three right-hand sides.
+    ** This is the expensive step (about 80 000 unknowns at n = 100). */
+    matrix      K = vK(Uh,Uh, solver=sparsesolver);
+    real[int]   F(Uh.ndof);
+
+    e01     = 1; 
+    e02     = 0; 
+    e03     = 0; 
+    F       = vF(0,Uh); 
+    a1[]    = K^-1*F; // unit eps_xx
+
+    e01     = 0; 
+    e02     = 1; 
+    e03     = 0; 
+    F       = vF(0,Uh); 
+    b1[]    = K^-1*F; // unit eps_yy
+
+    e01     = 0; 
+    e02     = 0; 
+    e03     = 1; 
+    F       = vF(0,Uh); 
+    d1[]    = K^-1*F; // unit gamma_xy
+
+    /* Homogenised stiffness by energy averaging, Q_ij = int E(rho) T_i : C0 : T_j (area 1).
+    ** Q22 equals Q11 by symmetry; computing it anyway shows that the symmetry really holds.*/
+    Q11 = int2d(Th)( Er*(T1'*C(T1)) );
+    Q22 = int2d(Th)( Er*(T2'*C(T2)) );
+    Q12 = int2d(Th)( Er*(T1'*C(T2)) );
+    Q33 = int2d(Th)( Er*(T3'*C(T3)) );
+
+    /* Objective f = Q12 - beta^iter (Q11 + Q22). Minimising Q12 (not nu = Q12/Q11) is well
+    ** posed: a ratio can be "improved" by disconnecting the cell (Q11 -> 0). The decaying
+    ** reward makes the optimiser build a connected structure before hollowing it out. */
+    real bl     = beta^iter;
+    f           = Q12 - bl*(Q11+Q22);
+    
+    /* Sensitivity: each fluctuation is in equilibrium, so the terms with d(chi)/d(rho)
+    ** cancel (self-adjoint) and dQ_ij/drho_k = int E'(rho) T_i:C0:T_j phi_k. */
+    varf vdf(r,w)   = int2d(Th)( dEr*( (T1'*C(T2)) - bl*((T1'*C(T1)) + (T2'*C(T2))) )*w );
+    
+    real[int] dfr   = vdf(0,Rh);
+    dfr             = dfr .* drho[]; // chain rule through the projection (exact)
+    tmp[]           = Af^-1*dfr;  
+    dfF[]           = Mm*tmp[]; // through the filter: df/dx = M Af^-1 df/drt
+    symm(dfF[]);
+
+    /* A9. Optimality-criteria update. For each node
+    ** x_new = clip( x * ( -df/dx / (lambda dV/dx) )^eta , x +- move, [0,1] ),
+    ** i.e. benefit per unit of material divided by the "price" lambda of material; lambda
+    ** is found by bisection so that the volume equals volfrac. max(1e-10, ...) turns nodes
+    ** where adding material hurts (df/dx > 0) into "remove at the maximum rate". */
+    real l1     = 0., 
+         l2     = 1e9, 
+         vol    = 0.;
+
+    xold        = xd;
+
+    while ((l2-l1)/(l1+l2) > 1e-4) 
+    {
+        real lmid   = 0.5*(l1+l2);
+        xn          = max(0., max(xold-move, min(1., min(xold+move, xold*(max(1e-10, -dfF/(lmid*dvF)))^eta))));
+        vol         = dv'*xn[];
+        
+        if (vol > volfrac) 
+            l1 = lmid; 
+        else 
+            l2 = lmid;
+    }
+
+    xd              = xn;
+
+    /* change = largest change of any design variable; with this objective it typically stays at
+    ** the move limit while f has long converged, so the run stops on an iteration count. */
+    real[int]   dx0     = xd[] - xold[];  
+                change  = dx0.linfty;
+
+    hist << iter << " " << f << " " << Q11 << " " << Q22 << " " << Q12 << " " << Q33 << " " << Q12/Q11 << " " << bH << endl;
+    
+    if (iter % 10 == 0 || iter == 1)
+        cout << "it " << iter << "  bH " << bH << "  Q11 " << Q11 << "  Q22 " << Q22 << "  Q12 " << Q12
+            << "  Q33 " << Q33 << "  nu_yx " << Q12/Q11 << "  change " << change << endl;
+    
+    /* Continuation: double bH every nstep iterations up to bHmax, then nfinal more and stop.
+    ** Starting smooth lets the layout form; sharpening later makes it crisp. A sharp
+    ** projection from the start leaves the optimiser stuck near its first layout. */
+    if (bH < bHmax && iter - lastbump >= nstep) 
+    { 
+        bH *= 2.; 
+        lastbump = iter; 
+    }
+    else if (bH >= bHmax && iter - lastbump >= nfinal) 
+        break;
+}
+
+// ---  Save: Nominal Design (Threshold 0.5) ---
+thr     = 0.5; 
+physical();
+
+cout << "FINAL  it " << iter << "  analysis threshold " << thrA
+     << "  Q11 " << Q11 << "  Q22 " << Q22 << "  Q12 " << Q12 << "  Q33 " << Q33
+     << "  nu_yx " << Q12/Q11 << "  nominal solid fraction " << int2d(Th)(rho) << endl;
+
+savemesh(Th, "cell.msh");
+
+{ 
+    ofstream fo("rho_P1.txt"); 
+    fo << rho[]; 
+} // array length first, then the nodal values
+
+int[int] ord = [1];
+
+savevtk("inv_homogenisation_rho.vtu", Th, rho, dataname="rho", order=ord);

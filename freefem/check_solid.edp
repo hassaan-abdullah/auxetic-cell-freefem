@@ -22,13 +22,11 @@ real    nu0 = 0.5,
         c12 = nu0/(1.-nu0^2), 
         c33 = 0.5/(1.+nu0);
 
-/* ---  Voigt Notation Macros ---
- 
-eps: strain [e_xx, e_yy, gamma_xy] with engineering shear gamma = du1/dy + du2/dx
-Ceps: stress = C * strain
-T1..T3: total strain (unit macro strain + fluctuation) for the three load cases
-C(t): C applied to any Voigt vector t
-*/
+// ---  Voigt Notation Macros ---
+/* eps: strain [e_xx, e_yy, gamma_xy] with engineering shear gamma = du1/dy + du2/dx
+** Ceps: stress = C * strain
+** T1..T3: total strain (unit macro strain + fluctuation) for the three load cases
+** C(t): C applied to any Voigt vector t */
 macro   eps(u1,u2)  [dx(u1), dy(u2), dy(u1)+dx(u2)] //
 macro   Ceps(u1,u2) [c11*dx(u1)+c12*dy(u2), c12*dx(u1)+c11*dy(u2), 
         c33*(dy(u1)+dx(u2))] //
